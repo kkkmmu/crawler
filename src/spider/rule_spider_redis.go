@@ -31,16 +31,6 @@ type Task struct {
 	task string
 }
 
-/*
-func (tq *TaskQueue) Enqueue(t *Task) {
-
-}
-
-func (tq *TaskQueue) Dequeue() *Task {
-
-}
-*/
-
 type ProduceFunction func(rs *RuleSpider, task string)
 type TaskProducer struct {
 	name    string
@@ -162,16 +152,6 @@ func linkTaskConsume(rs *RuleSpider) {
 				continue
 			}
 
-			/*
-				if true {
-					log.Println("Process done for link: ", c[1])
-					rs.ctp.client.HMSet(rs.linkCacheName(), map[string]string{c[1]: "1"})
-				} else {
-					//If failed, re-insert into link queue.
-					rs.ltp.client.RPush(rs.linkQueueName(), c[1])
-				}
-			*/
-
 			log.Println("=+============================================+=")
 			log.Println("News: ", news)
 			log.Println("=+============================================+=")
@@ -214,28 +194,7 @@ func contentTaskProduce(rs *RuleSpider, task string) {
 	log.Println("Add content: ", task, " into content queue: ", rs.contentQueueName())
 
 	rs.ltp.client.RPush(rs.contentQueueName(), task)
-	/*
-		resp, err := rs.hc.Get(task)
-		if err != nil {
-			log.Println("Error happened when get url: ", err.Error())
-			s+
-			return
-		}
-		defer resp.Body.Close()
 
-		document, err := ioutil.ReadAll(resp.Body)
-		if err != nil {
-			log.Println("Error happend when get reponse body: ", err.Error())
-			return
-		}
-
-		matches := rs.re.FindAllStringSubmatch(string(document), -1)
-		for _, match := range matches {
-			log.Println("Register content: ", match[1], " into content queue: ", rs.contentQueueName())
-			rs.ctp.client.RPush(rs.contentQueueName(), match[1])
-		}
-
-	*/
 	//This part should be set when all the operation is successful on a content
 	if true {
 		rs.ctp.client.HMSet(rs.contentCacheName(), map[string]string{task: "1"})
@@ -368,6 +327,5 @@ func defaultLinkGenerator(page string, document string) ([]string, error) {
 		}
 	}
 
-	//log.Println("Find new links: ", links)
 	return links, nil
 }
