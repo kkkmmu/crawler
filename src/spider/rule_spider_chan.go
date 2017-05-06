@@ -6,9 +6,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
-	"net/url"
 	"regexp"
-	"strings"
 	"sync"
 )
 
@@ -18,7 +16,7 @@ const (
 	PROCESSFAILED
 )
 
-type RuleSpider struct {
+type RuleSpiderChan struct {
 	url           string
 	pages         chan string
 	document      string
@@ -32,57 +30,7 @@ type RuleSpider struct {
 	result        chan string
 }
 
-func defualtFilter(in string) bool {
-	if strings.HasSuffix(in, "css") || strings.HasSuffix(in, "js") || strings.HasSuffix(in, "asp") || strings.HasSuffix(in, "jsp") {
-		fmt.Println(" ", in, " is filtered by defaultFilter")
-		return true
-	}
-	fmt.Println(in, " passed the default filter!")
-	return false
-}
-
-func defaultLinkGenerator(page string, document string) ([]string, error) {
-	re, err := regexp.Compile(`href=\"(?P<link>[[:word:]\-_#\$\^&=:\~/\.]+)\"`)
-	if err != nil {
-		fmt.Println("Invalid regexp for fetch link")
-		return nil, errors.New("Invalid regexp for fetch link")
-	}
-	matches := re.FindAllStringSubmatch(document, -1)
-	links := make([]string, 0, len(matches))
-
-	u, err := url.Parse(page)
-	if err != nil {
-		fmt.Println(" Error happened when paresing: ", page)
-		return nil, errors.New("Invalid page url")
-	}
-
-	for _, v := range matches {
-		if strings.HasPrefix(v[1], "http://") || strings.HasPrefix(v[1], "https://") {
-			if !strings.HasSuffix(v[1], "js") && !strings.HasSuffix(v[1], "css") && !strings.HasSuffix(v[1], "jpg") && !strings.HasSuffix(v[1], "png") && !strings.HasSuffix(v[1], "gif") && !strings.HasSuffix(v[1], "jpeg") {
-				/* We do not go out of this site */
-				if strings.Contains(v[1], u.Scheme+"://"+u.Host) {
-					links = append(links, v[1])
-				}
-			}
-		}
-		/*
-			else {
-				u, err := url.Parse(page)
-				if err != nil {
-					fmt.Println(" Error happened when paresing: ", page)
-					continue
-				}
-
-				links = append(links, u.Scheme+"://"+u.Host+"/"+v[1])
-			}
-		*/
-	}
-
-	//fmt.Println("Find new links: ", links)
-	return links, nil
-}
-
-func NewRuleSpider(url string, rule string) (*RuleSpider, error) {
+func NewRuleSpiderChan(url string, rule string) (*RuleSpiderChan, error) {
 	if url == "" || rule == "" {
 		return nil, errors.New("Invalid url and rule")
 	}
@@ -92,11 +40,11 @@ func NewRuleSpider(url string, rule string) (*RuleSpider, error) {
 		return nil, errors.New("Invalid rule!")
 	}
 
-	return &RuleSpider{
+	return &RuleSpiderChan{
 		url:           url,
 		rule:          rule,
 		re:            re,
-		filter:        defualtFilter,
+		filter:        defaultFilter,
 		linkGenerator: defaultLinkGenerator,
 		pages:         make(chan string, 2),
 		db:            make(map[string]int, 1000000), //@liwei: How to make this more flaxiable.
@@ -106,7 +54,7 @@ func NewRuleSpider(url string, rule string) (*RuleSpider, error) {
 	}, nil
 }
 
-func (rs *RuleSpider) Spide(page string) {
+func (rs *RuleSpiderChan) Spide(page string) {
 	/* Should be put in Spider */
 	tr := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
@@ -165,7 +113,7 @@ func (rs *RuleSpider) Spide(page string) {
 	rs.Filter(raw)
 }
 
-func (rs *RuleSpider) Filter(in chan string) {
+func (rs *RuleSpiderChan) Filter(in chan string) {
 	go func(in chan string) {
 		for match := range in {
 			if rs.filter(match) {
@@ -185,7 +133,7 @@ func (rs *RuleSpider) Filter(in chan string) {
 	}(in)
 }
 
-func (rs *RuleSpider) Start() chan string {
+func (rs *RuleSpiderChan) Start() chan string {
 	go func(pages chan string) {
 		for p := range pages {
 			rs.dbLock.Lock()
@@ -232,10 +180,10 @@ func (rs *RuleSpider) Start() chan string {
 	return rs.result
 }
 
-func (rs *RuleSpider) RegisterFilter(filter Filter) {
+func (rs *RuleSpiderChan) RegisterFilter(filter Filter) {
 	rs.filter = filter
 }
 
-func (rs *RuleSpider) RegisterLinkGenerator(generator LinkGenerator) {
+func (rs *RuleSpiderChan) RegisterLinkGenerator(generator LinkGenerator) {
 	rs.linkGenerator = generator
 }

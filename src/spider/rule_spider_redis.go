@@ -7,9 +7,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
-	"net/url"
 	"regexp"
-	"strings"
 	"time"
 )
 
@@ -25,10 +23,6 @@ type RuleSpider struct {
 	filter        Filter //@liwei: We only need one filter.
 	linkGenerator LinkGenerator
 	ratelimit     <-chan time.Time
-}
-
-type Task struct {
-	task string
 }
 
 type ProduceFunction func(rs *RuleSpider, task string)
@@ -290,42 +284,4 @@ func (rs *RuleSpider) RegisterFilter(filter Filter) {
 
 func (rs *RuleSpider) RegisterLinkGenerator(generator LinkGenerator) {
 	rs.linkGenerator = generator
-}
-
-func defaultFilter(in string) bool {
-	if strings.HasSuffix(in, "css") || strings.HasSuffix(in, "js") || strings.HasSuffix(in, "asp") || strings.HasSuffix(in, "jsp") || strings.HasSuffix(in, "xml") {
-		log.Println(" ", in, " is filtered by defaultFilter")
-		return true
-	}
-	log.Println(in, " passed the default filter!")
-	return false
-}
-
-func defaultLinkGenerator(page string, document string) ([]string, error) {
-	re, err := regexp.Compile(`href=\"(?P<link>[[:word:]\-_#\$\^&=:\~/\.]+)\"`)
-	if err != nil {
-		log.Println("Invalid regexp for fetch link")
-		return nil, errors.New("Invalid regexp for fetch link")
-	}
-	matches := re.FindAllStringSubmatch(document, -1)
-	links := make([]string, 0, len(matches))
-
-	u, err := url.Parse(page)
-	if err != nil {
-		log.Println(" Error happened when paresing: ", page)
-		return nil, errors.New("Invalid page url")
-	}
-
-	for _, v := range matches {
-		if strings.HasPrefix(v[1], "http://") || strings.HasPrefix(v[1], "https://") {
-			if !strings.HasSuffix(v[1], "js") && !strings.HasSuffix(v[1], "css") && !strings.HasSuffix(v[1], "jpg") && !strings.HasSuffix(v[1], "png") && !strings.HasSuffix(v[1], "gif") && !strings.HasSuffix(v[1], "jpeg") && !strings.HasSuffix(v[1], "xml") {
-				/* We do not go out of this site */
-				if strings.Contains(v[1], u.Scheme+"://"+u.Host) {
-					links = append(links, v[1])
-				}
-			}
-		}
-	}
-
-	return links, nil
 }
