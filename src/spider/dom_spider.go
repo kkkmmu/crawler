@@ -1,34 +1,299 @@
-package main
+package spider
 
 import (
+	"bytes"
 	"crypto/tls"
 	"errors"
-	"fmt"
 	"github.com/PuerkitoBio/goquery"
+	"gopkg.in/redis.v5"
+	"io/ioutil"
 	"log"
 	"net/http"
+	"net/url"
+	"regexp"
+	"strings"
 	"sync"
+	"time"
 )
 
+type Filter func(match string) bool
+
+type LinkGenerator func(page string, document string) ([]string, error)
+
+/*
+The basic understanding for a spider is as this：
+	First we use links to represent the graph(edge) of a website.
+	Second we use content to information(leaf) that we want to get.
+
+	For Each LINK/CONTENT we maintain three queue and a CACHE.
+		1. XXXQUEUE: Save all the unprocessed XXX.
+		2. XXXWORKQUEEU: Save all the under-processing XXX. We use this queue to implement rate limit.
+		3. XXXFAILEDQUEUE: Save all the XXX that is failed during the process.
+		4. XXXCACHE: Save all the processed XXX. For FAILED/UNPROCESSED entry, the value is "0", For SUCCESSED entry, the value is "1";
+*/
+
+type Task struct {
+	task    string
+	success bool
+}
+
 type Spider struct {
-	doc       *goquery.Document
-	root      string //root
-	selector  string //Please refer to the CSS selector docuemnt to get the right selector
-	attribute string
-	client    *http.Client
+	root                   string //root
+	selector               string //Please refer to the CSS selector docuemnt to get the right selector
+	attribute              string
+	result                 chan string /* Channel which will give user client the result information. */
+	done                   chan string
+	filter                 Filter //@liwei: We only need one filter.
+	linkGenerator          LinkGenerator
+	linkPublisher          *Publisher
+	linkFailedPublisher    *Publisher
+	contentPublisher       *Publisher
+	contentFailedPublisher *Publisher
+	linkConsumer           *Consumer
+	linkFailedConsumer     *Consumer
+	contentConsumer        *Consumer
+	contentFailedConsumer  *Consumer
+	linkConfirmChannel     chan *Task /* Channel for confirmation of successful link process. */
+	resultConfirmChannel   chan *Task /* Channel which is used to get the user confirmation for a particular result. */
+	ratelimit              <-chan time.Time
+}
+
+type Queue struct {
+	Name string
+}
+
+type Cache struct {
+	Name string
+}
+
+type Publisher struct {
+	queue       *Queue
+	cache       *Cache
+	Name        string
+	redisClient *redis.Client
+}
+
+func (p *Publisher) Publish(msg string) {
+	if p.IsPublished(msg) {
+		log.Println("Msg ", msg, " already exist in processed db: ", p.cache.Name)
+		return
+	}
+	log.Println("Publisher ", p.Name, " published message: ", msg)
+	p.redisClient.RPush(p.queue.Name, msg)
+	p.redisClient.HMSet(p.cache.Name, map[string]string{msg: "0"})
+}
+
+func (p *Publisher) IsPublished(msg string) bool {
+	res, _ := p.redisClient.HExists(p.queue.Name, msg).Result()
+	return res
+}
+
+type Consumer struct {
+	workQueue   *Queue
+	cache       *Cache
+	Name        string
+	httpClient  *http.Client
+	redisClient *redis.Client
+}
+
+func (c *Consumer) Consume(msg string) {
+	if c.IsConsumed(msg) {
+		log.Println("Msg ", msg, " already processed! db: ", c.cache.Name)
+		return
+	}
+	log.Println("Consumer ", c.Name, " consumed message: ", msg)
+	c.redisClient.RPush(c.workQueue.Name, msg)
+}
+
+func (c *Consumer) IsConsumed(msg string) bool {
+	res, _ := c.redisClient.HGet(c.cache.Name, msg).Result()
+	if strings.EqualFold(res, "1") {
+		return true
+	}
+	return false
 }
 
 func CreateNewSpider(root, selector, attribute string) (*Spider, error) {
-	client := &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	return &Spider{
+		root:                 root,
+		selector:             selector,
+		attribute:            attribute,
+		done:                 make(chan string),
+		result:               make(chan string),
+		linkConfirmChannel:   make(chan *Task),
+		resultConfirmChannel: make(chan *Task),
+		ratelimit:            time.Tick(time.Second * 10),
+		filter:               defaultFilter,
+		linkGenerator:        defaultLinkGenerator,
+		linkPublisher: &Publisher{
+			Name: "LinkPublisher",
+			queue: &Queue{
+				Name: "LINK:" + root + ":QUEUE",
+			},
+			cache: &Cache{
+				Name: "LINK:" + root + ":CACHE",
+			},
+			redisClient: redis.NewClient(&redis.Options{
+				Addr:     "localhost:6379",
+				Password: "",
+				DB:       0,
+			}),
 		},
-	}
+		linkFailedPublisher: &Publisher{
+			Name: "LinkFailedPublisher",
+			queue: &Queue{
+				Name: "LINK:" + root + ":FAILEDQUEUE",
+			},
+			cache: &Cache{
+				Name: "LINK:" + root + ":FAILEDCACHE",
+			},
+			redisClient: redis.NewClient(&redis.Options{
+				Addr:     "localhost:6379",
+				Password: "",
+				DB:       0,
+			}),
+		},
 
-	resp, err := client.Get(root)
+		linkConsumer: &Consumer{
+			Name: "LinkConsumer",
+			cache: &Cache{
+				Name: "LINK:" + root + ":CACHE",
+			},
+			workQueue: &Queue{
+				Name: "LINK:" + root + ":WORKQUEUEU",
+			},
+			redisClient: redis.NewClient(&redis.Options{
+				Addr:     "localhost:6379",
+				Password: "",
+				DB:       0,
+			}),
+			httpClient: &http.Client{
+				Transport: &http.Transport{
+					TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+				},
+			},
+		},
+
+		linkFailedConsumer: &Consumer{
+			Name: "LinkFailedConsumer",
+			cache: &Cache{
+				Name: "LINK:" + root + ":FAILEDCACHE",
+			},
+			workQueue: &Queue{
+				Name: "LINK:" + root + ":FAILEDWORKQUEUEU",
+			},
+			redisClient: redis.NewClient(&redis.Options{
+				Addr:     "localhost:6379",
+				Password: "",
+				DB:       0,
+			}),
+			httpClient: &http.Client{
+				Transport: &http.Transport{
+					TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+				},
+			},
+		},
+
+		contentPublisher: &Publisher{
+			Name: "contentPublisher",
+			queue: &Queue{
+				Name: "CONTENT:" + root + ":QUEUE",
+			},
+			cache: &Cache{
+				Name: "CONTENT:" + root + ":CACHE",
+			},
+			redisClient: redis.NewClient(&redis.Options{
+				Addr:     "localhost:6379",
+				Password: "",
+				DB:       0,
+			}),
+		},
+
+		contentFailedPublisher: &Publisher{
+			Name: "ContentFailedPublisher",
+			queue: &Queue{
+				Name: "CONTENT:" + root + ":FailedQUEUE",
+			},
+			cache: &Cache{
+				Name: "CONTENT:" + root + ":FAILEDCACHE",
+			},
+			redisClient: redis.NewClient(&redis.Options{
+				Addr:     "localhost:6379",
+				Password: "",
+				DB:       0,
+			}),
+		},
+
+		contentConsumer: &Consumer{
+			Name: "ContentConsumer",
+			cache: &Cache{
+				Name: "CONTENT:" + root + ":CACHE",
+			},
+			workQueue: &Queue{
+				Name: "CONTENT:" + root + ":WORKQUEUEU",
+			},
+			redisClient: redis.NewClient(&redis.Options{
+				Addr:     "localhost:6379",
+				Password: "",
+				DB:       0,
+			}),
+			httpClient: &http.Client{
+				Transport: &http.Transport{
+					TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+				},
+			},
+		},
+
+		contentFailedConsumer: &Consumer{
+			Name: "ContentFailedConsumer",
+			cache: &Cache{
+				Name: "CONTENT:" + root + ":FAILEDCACHE",
+			},
+			workQueue: &Queue{
+				Name: "CONTENT:" + root + ":FAILEDWORKQUEUEU",
+			},
+			redisClient: redis.NewClient(&redis.Options{
+				Addr:     "localhost:6379",
+				Password: "",
+				DB:       0,
+			}),
+			httpClient: &http.Client{
+				Transport: &http.Transport{
+					TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+				},
+			},
+		},
+	}, nil
+}
+
+func (s *Spider) ResultAccepted(task string) {
+	s.resultConfirmChannel <- &Task{task: task, success: true}
+}
+
+func (s *Spider) ResultRejected(task string) {
+	s.resultConfirmChannel <- &Task{task: task, success: false}
+}
+
+func (s *Spider) linkAccepted(task string) {
+	s.linkConfirmChannel <- &Task{task: task, success: true}
+}
+
+func (s *Spider) linkRejected(task string) {
+	s.linkConfirmChannel <- &Task{task: task, success: false}
+}
+
+/*
+func (s *Spider) GetHtml(page, rule string) ([]string, error) {
+	var (
+		res = make([]string, 0) //for leaf
+		wg  sync.WaitGroup
+		mu  sync.Mutex
+	)
+
+	resp, err := s.client.Get(page)
 	if err != nil {
 		log.Println(err.Error())
-		return nil, errors.New("Cannot Open page: " + root)
+		return nil, errors.New("Cannot Open page: " + s.root)
 	}
 	defer resp.Body.Close()
 
@@ -38,23 +303,7 @@ func CreateNewSpider(root, selector, attribute string) (*Spider, error) {
 		return nil, fmt.Errorf("Cannot create Docuement by Response")
 	}
 
-	return &Spider{
-		doc:       doc,
-		root:      root,
-		client:    client,
-		selector:  selector,
-		attribute: attribute,
-	}, nil
-}
-
-func (s *Spider) GetHtml(rule string) ([]string, error) {
-	var (
-		res = make([]string, 0) //for leaf
-		wg  sync.WaitGroup
-		mu  sync.Mutex
-	)
-
-	s.doc.Find(rule).Each(func(ix int, sl *goquery.Selection) {
+	doc.Find(rule).Each(func(ix int, sl *goquery.Selection) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -70,14 +319,27 @@ func (s *Spider) GetHtml(rule string) ([]string, error) {
 	return res, nil
 }
 
-func (s *Spider) GetText(rule string) ([]string, error) {
+func (s *Spider) GetText(page, rule string) ([]string, error) {
 	var (
 		res = make([]string, 0) //for leaf
 		wg  sync.WaitGroup
 		mu  sync.Mutex
 	)
 
-	s.doc.Find(rule).Each(func(ix int, sl *goquery.Selection) {
+	resp, err := s.client.Get(page)
+	if err != nil {
+		log.Println(err.Error())
+		return nil, errors.New("Cannot Open page: " + root)
+	}
+	defer resp.Body.Close()
+
+	doc, err := goquery.NewDocumentFromResponse(resp)
+	if err != nil {
+		log.Println(err.Error())
+		return nil, fmt.Errorf("Cannot create Docuement by Response")
+	}
+
+	doc.Find(rule).Each(func(ix int, sl *goquery.Selection) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -90,14 +352,14 @@ func (s *Spider) GetText(rule string) ([]string, error) {
 	return res, nil
 }
 
-func (s *Spider) GetAttr(rule, attr string) ([]string, error) {
+func (s *Spider) spide(doc *goquery.Document) ([]string, error) {
 	var (
 		res = make([]string, 0) //for leaf
 		wg  sync.WaitGroup
 		mu  sync.Mutex
 	)
 
-	s.doc.Find(rule).Each(func(ix int, sl *goquery.Selection) {
+	doc.Find(rule).Each(func(ix int, sl *goquery.Selection) {
 		s, _ := sl.Html()
 		log.Println("Matched: ", s)
 		wg.Add(1)
@@ -115,30 +377,308 @@ func (s *Spider) GetAttr(rule, attr string) ([]string, error) {
 	return res, nil
 }
 
-func (s *Spider) Start() {
-	log.Println(s.selector, " ", s.attribute)
-	log.Println(s.GetAttr(s.selector, s.attribute))
+//With this function we get all the content that we need from a particular page.
+func (s *Spider) GetAttr(page, rule, attr string) ([]string, error) {
+	var (
+		res = make([]string, 0) //for leaf
+		wg  sync.WaitGroup
+		mu  sync.Mutex
+	)
+
+	resp, err := s.client.Get(page)
+	if err != nil {
+		log.Println(err.Error())
+		return nil, errors.New("Cannot Open page: " + root)
+	}
+	defer resp.Body.Close()
+
+	doc, err := goquery.NewDocumentFromResponse(resp)
+	if err != nil {
+		log.Println(err.Error())
+		return nil, fmt.Errorf("Cannot create Docuement by Response")
+	}
+
+	doc.Find(rule).Each(func(ix int, sl *goquery.Selection) {
+		s, _ := sl.Html()
+		log.Println("Matched: ", s)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			attr, ok := sl.Attr(attr)
+			if ok {
+				mu.Lock()
+				res = append(res, attr)
+				mu.Unlock()
+			}
+		}()
+	})
+	wg.Wait()
+	return res, nil
+}
+*/
+
+func (s *Spider) Spide() <-chan string {
+	//Thread 1 Link Consume and ratelimit thread
+	go func(s *Spider) {
+		for {
+			link, err := s.linkPublisher.redisClient.BLPop(time.Second*1000, s.linkPublisher.queue.Name).Result()
+			if err != nil {
+				log.Println("Error happed when get  link from queue: ", err.Error())
+				continue
+			}
+			log.Println("[LINK]Get task: ", link[1], " from link queue")
+			s.linkConsumer.Consume(link[1])
+		}
+	}(s)
+
+	//Thread 2 Thread Content generation ratelimit thread
+	go func(s *Spider) {
+		for {
+			content, err := s.contentPublisher.redisClient.BLPop(time.Second*1000, s.contentPublisher.queue.Name).Result()
+			if err != nil {
+				log.Println("Error happed when get  content from queue: ", err.Error())
+				continue
+			}
+			log.Println("[CONTENT]Get task: ", content[1], " from content queue")
+			s.contentConsumer.Consume(content[1])
+		}
+	}(s)
+
+	//Thread 3 Link Consume thread.
+	go func(s *Spider) {
+		for {
+			link, err := s.linkConsumer.redisClient.BLPop(time.Second*1000, s.linkConsumer.workQueue.Name).Result()
+			if err != nil {
+				log.Println("Error happed when get link from working queue: ", err.Error())
+				continue
+			}
+			log.Println("[LINK]Get task: ", link[1], " from link working queue")
+			// Process the link
+			//May be we should create http client for both producer an consumer
+			resp, err := s.linkConsumer.httpClient.Get(link[1])
+			if err != nil {
+				log.Println("Error happened when get url: ", err.Error())
+				continue
+			}
+			defer resp.Body.Close()
+
+			//Get all new links
+			body, err := ioutil.ReadAll(resp.Body)
+			if err != nil {
+				log.Println("Error happend when get reponse body: ", err.Error())
+				continue
+			}
+			//log.Println(string(body))
+
+			news, err := s.linkGenerator(s.root, string(body))
+			if err != nil {
+				log.Println("Error happened when fetch new link in page: ", s.root)
+				continue
+			}
+
+			go func(news []string) {
+				for _, l := range news {
+					log.Println("[Link]: Produce new link: ", l)
+					<-s.ratelimit
+					s.linkPublisher.Publish(l)
+				}
+			}(news)
+
+			//After last step, body is currupt. So the following three function cannot work
+			//doc, err := goquery.NewDocumentFromResponse(resp)
+			//doc, err := goquery.NewDocumentFromReader(resp.Body)
+			//doc, err := goquery.NewDocument(link[1])
+			doc, err := goquery.NewDocumentFromReader(bytes.NewReader(body))
+			if err != nil {
+				log.Println("Error happend when create docuement")
+				continue
+			}
+
+			//This may make a good performance? Make a local copy of each doc.
+			go func(doc *goquery.Document) {
+				var wg sync.WaitGroup
+				doc.Find(s.selector).Each(func(ix int, selection *goquery.Selection) {
+					html, _ := selection.Html()
+					//log.Println("Matched: ", sh, " sl.Attr: ", a)
+					wg.Add(1)
+					go func() {
+						defer wg.Done()
+						if s.attribute == "" {
+							s.contentPublisher.Publish(html)
+						} else {
+							attr, ok := selection.Attr(s.attribute)
+							if ok {
+								s.contentPublisher.Publish(attr)
+							}
+						}
+					}()
+				})
+				wg.Wait()
+			}(doc)
+		}
+	}(s)
+
+	//Thread 4 User result generation thread
+	go func(s *Spider) {
+		for {
+			//If this operation is long blocked, how about another operation which use the same client in different thread?
+			content, err := s.contentConsumer.redisClient.BLPop(time.Second*1000, s.contentConsumer.workQueue.Name).Result()
+			if err != nil {
+				log.Println("Error happend when get content from workqueue: ", err.Error())
+				continue
+			}
+			log.Println("[Content]Get task: ", content[1], " from content working queue")
+			s.result <- content[1]
+			// Procuess the content
+		}
+	}(s)
+
+	//Thread 5: Confirmation check  thread
+	go func(s *Spider) {
+		for {
+			select {
+			case l := <-s.linkConfirmChannel:
+				if l.success {
+					s.linkPublisher.redisClient.HMSet(s.linkPublisher.cache.Name, map[string]string{l.task: "1"})
+				} else {
+					s.linkFailedPublisher.Publish(l.task)
+				}
+			case c := <-s.resultConfirmChannel:
+				if c.success {
+					s.contentPublisher.redisClient.HMSet(s.contentPublisher.cache.Name, map[string]string{c.task: "1"})
+				} else {
+					s.contentFailedPublisher.Publish(c.task)
+				}
+			}
+		}
+	}(s)
+
+	//Thread 6: Error entry handler and Finish check
+	go func(s *Spider) {
+		for _ = range time.Tick(time.Second * 30) {
+			if l, err := s.contentFailedConsumer.redisClient.LLen(s.contentFailedPublisher.queue.Name).Result(); err == nil && l > 50 {
+				go func() {
+					content, err := s.contentFailedConsumer.redisClient.BLPop(time.Second*60, s.contentFailedPublisher.queue.Name).Result()
+					if err != nil {
+						log.Println("Get content from Failed queue with error: ", err.Error())
+						return
+					}
+					s.contentConsumer.Consume(content[1])
+				}()
+
+			}
+
+			if l, err := s.linkFailedConsumer.redisClient.LLen(s.linkFailedPublisher.queue.Name).Result(); err == nil && l > 50 {
+				go func() {
+					link, err := s.linkFailedConsumer.redisClient.BLPop(time.Second*60, s.linkFailedPublisher.queue.Name).Result()
+					if err != nil {
+						log.Println("Get link from Failed queue with error: ", err.Error())
+						return
+					}
+					s.linkConsumer.Consume(link[1])
+				}()
+			}
+
+			//If All queue are empty, we think that we are finished.
+			if len, _ := s.linkFailedConsumer.redisClient.LLen(s.linkPublisher.queue.Name).Result(); len == 0 {
+				if len, _ := s.linkFailedConsumer.redisClient.LLen(s.linkFailedPublisher.queue.Name).Result(); len == 0 {
+					if len, _ := s.linkFailedConsumer.redisClient.LLen(s.linkConsumer.workQueue.Name).Result(); len == 0 {
+						if len, _ := s.contentFailedConsumer.redisClient.LLen(s.contentPublisher.queue.Name).Result(); len == 0 {
+							if len, _ := s.contentFailedConsumer.redisClient.LLen(s.contentFailedPublisher.queue.Name).Result(); len == 0 {
+								if len, _ := s.contentFailedConsumer.redisClient.LLen(s.contentConsumer.workQueue.Name).Result(); len == 0 {
+									s.done <- "Done"
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}(s)
+
+	s.linkPublisher.Publish(s.root)
+	return s.result
 }
 
-func main() {
-	sp, err := CreateNewSpider("https://www.taotuba.net", "div.post-thumbnail>a", "href")
-	if err != nil {
-		log.Println(err.Error())
-	}
-	go sp.Start()
+func (s *Spider) Start() <-chan string {
+	return s.Spide()
+}
 
-	/* Please refer to the CSS selector document to get the right selector*/
-	//sp1, err := CreateNewSpider("https://www.taotuba.net/huayan/6139.html", "div.picsbox>p.img_jz>a", "href")
-	//sp1, err := CreateNewSpider("https://www.taotuba.net/huayan/6139.html", "div.picsboxcenter>p.img_jz>a>img", "src")
-	sp1, err := CreateNewSpider("https://www.taotuba.net/huayan/6139.html", "div.picsboxcenter>p.img_jz>a>img", "src")
+func (s *Spider) Done() <-chan string {
+	return s.done
+}
+
+func (s *Spider) Reset() {
+	s.linkPublisher.redisClient.Del(s.linkPublisher.queue.Name)
+	s.linkPublisher.redisClient.Del(s.linkPublisher.cache.Name)
+	s.linkFailedPublisher.redisClient.Del(s.linkFailedPublisher.queue.Name)
+	s.linkFailedPublisher.redisClient.Del(s.linkFailedPublisher.cache.Name)
+
+	s.linkConsumer.redisClient.Del(s.linkConsumer.workQueue.Name)
+	s.linkFailedConsumer.redisClient.Del(s.linkFailedConsumer.workQueue.Name)
+	s.contentConsumer.redisClient.Del(s.contentConsumer.workQueue.Name)
+	s.contentFailedConsumer.redisClient.Del(s.contentFailedConsumer.workQueue.Name)
+}
+
+func defaultFilter(in string) bool {
+	if strings.HasSuffix(in, "css") || strings.HasSuffix(in, "js") || strings.HasSuffix(in, "asp") || strings.HasSuffix(in, "jsp") || strings.HasSuffix(in, "xml") {
+		log.Println(" ", in, " is filtered by defaultFilter")
+		return true
+	}
+	log.Println(in, " passed the default filter!")
+	return false
+}
+
+func defaultLinkGenerator(page string, document string) ([]string, error) {
+	re, err := regexp.Compile(`href=\"(?P<link>[[:word:]\-_#\$\^&=:\~/\.]+)\"`)
+	if err != nil {
+		log.Println("Invalid regexp for fetch link")
+		return nil, errors.New("Invalid regexp for fetch link")
+	}
+	matches := re.FindAllStringSubmatch(document, -1)
+	links := make([]string, 0, len(matches))
+
+	u, err := url.Parse(page)
+	if err != nil {
+		log.Println(" Error happened when paresing: ", page)
+		return nil, errors.New("Invalid page url")
+	}
+
+	for _, v := range matches {
+		if strings.HasPrefix(v[1], "http://") || strings.HasPrefix(v[1], "https://") {
+			if !strings.HasSuffix(v[1], "js") && !strings.HasSuffix(v[1], "css") && !strings.HasSuffix(v[1], "jpg") && !strings.HasSuffix(v[1], "png") && !strings.HasSuffix(v[1], "gif") && !strings.HasSuffix(v[1], "jpeg") && !strings.HasSuffix(v[1], "xml") {
+				/* We do not go out of this site */
+				if strings.Contains(v[1], u.Scheme+"://"+u.Host) {
+					links = append(links, v[1])
+				}
+			}
+		}
+	}
+
+	return links, nil
+}
+
+/*
+func main() {
+	//sp, err := CreateNewSpider("https://www.taotuba.net", "div.post-thumbnail>a", "href")
+	sp, err := CreateNewSpider("http://www.163.com", "a", "href")
 	if err != nil {
 		log.Println(err.Error())
 	}
-	go sp1.Start()
-	done := make(chan int)
-	<-done
+
+	sp.Reset()
+	result := sp.Start()
+
+	go func(r <-chan string) {
+		for i := range r {
+			log.Println("So finally we get the result: ", i)
+		}
+	}(result)
+
+	log.Println(<-sp.Done())
 }
 
 func init() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 }
+*/
