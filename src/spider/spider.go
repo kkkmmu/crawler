@@ -59,7 +59,7 @@ func defaultLinkGenerator(page string, document string) ([]string, error) {
 			link = u.Scheme + "://" + u.Host + link
 		}
 		if strings.HasPrefix(link, "http://") || strings.HasPrefix(link, "https://") {
-			if !strings.HasSuffix(link, "js") && !strings.HasSuffix(link, "css") && !strings.HasSuffix(link, "jpg") && !strings.HasSuffix(link, "png") && !strings.HasSuffix(link, "gif") && !strings.HasSuffix(link, "jpeg") && !strings.HasSuffix(link, "xml") && !strings.HasSuffix(link, "less") && !strings.HasSuffix(link, "php") && !strings.HasSuffix(link, "aspx") {
+			if !strings.Contains(link, "js") && !strings.Contains(link, "css") && !strings.Contains(link, "jpg") && !strings.Contains(link, "png") && !strings.Contains(link, "gif") && !strings.Contains(link, "jpeg") && !strings.Contains(link, "xml") && !strings.Contains(link, "less") && !strings.Contains(link, "php") && !strings.Contains(link, "aspx") {
 				/* The root already processed. */
 				if link != u.Scheme+"://"+u.Host && link != u.Scheme+"://"+u.Host+"/" {
 					/* We do not go out of this site */
