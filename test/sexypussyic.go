@@ -10,7 +10,7 @@ import (
 )
 
 func main() {
-	sp, err := spider.CreateNewDomSpider("http://www.ttttba.com", "div.context>div#post_content>p>img", "data-lazy-src")
+	sp, err := spider.CreateNewDomSpider("http://www.sexypussypic.com", "div.container>div.row>div.col-md-12>div>div>figure>a", "href")
 	if err != nil {
 		log.Println(err.Error())
 	}
@@ -33,7 +33,7 @@ func init() {
 }
 
 func defaultLinkGenerator(page string, document string) ([]string, error) {
-	re, err := regexp.Compile(`href=\"(?P<link>[[:word:]\-_#\$%\^&=:\~/\.\?]+)\"`)
+	re, err := regexp.Compile(`href=[\"|\']{1}(?P<link>[[:word:]\-_#%\$\^&=:\~/\.\?]+)[\"|\']{1}`)
 	if err != nil {
 		log.Println("Invalid regexp for fetch link")
 		return nil, errors.New("Invalid regexp for fetch link")
@@ -47,19 +47,24 @@ func defaultLinkGenerator(page string, document string) ([]string, error) {
 		return nil, errors.New("Invalid page url")
 	}
 
-	log.Println(u.RawPath)
 	for _, v := range matches {
 		link := v[1]
+		if strings.HasPrefix(link, "/") || strings.HasPrefix(link, "./") {
+			link = u.Scheme + "://" + u.Host + link
+		}
+		/*
+			dump := strings.Split(link, "?")
+			link = dump[0]
+		*/
+
+		//log.Println(dump)
 		if strings.HasPrefix(link, "http://") || strings.HasPrefix(link, "https://") {
-			if !strings.Contains(link, "js") && !strings.Contains(link, "css") && !strings.Contains(link, "jpg") && !strings.Contains(link, "png") && !strings.Contains(link, "gif") && !strings.Contains(link, "jpeg") && !strings.Contains(link, "xml") && !strings.Contains(link, "less") && !strings.Contains(link, "php") && !strings.Contains(link, "wp.") && !strings.Contains(link, "wp-json") && !strings.Contains(link, "javascript") && !strings.Contains(link, "comment") {
+			if !strings.Contains(link, "js") && !strings.Contains(link, "css") && !strings.Contains(link, "jpg") && !strings.Contains(link, "png") && !strings.Contains(link, "gif") && !strings.Contains(link, "jpeg") && !strings.Contains(link, "xml") && !strings.Contains(link, "less") && !strings.Contains(link, "cgi") && !strings.Contains(link, "aspx") && !strings.HasSuffix(link, "ico") && !strings.HasSuffix(link, "com") && !strings.HasSuffix(link, "net") && !strings.HasSuffix(link, "org") && !strings.HasSuffix(link, ".me") && !strings.Contains(link, "=") {
 				/* The root already processed. */
 				if link != u.Scheme+"://"+u.Host && link != u.Scheme+"://"+u.Host+"/" {
-					if !strings.HasSuffix(link, "feed") && !strings.HasSuffix(link, "favorite") && !strings.HasSuffix(link, "nvshenhaoqiao") {
-						/* We do not go out of this site */
-						if strings.Contains(link, u.Scheme+"://"+u.Host) {
-							//							log.Println(link)
-							links = append(links, link)
-						}
+					/* We do not go out of this site */
+					if strings.Contains(link, u.Scheme+"://"+u.Host) {
+						links = append(links, link)
 					}
 				}
 			}

@@ -497,7 +497,13 @@ func (s *DomSpider) Spide() <-chan string {
 			//log.Println("[LINK]Get task: ", link[1], " from link working queue")
 			// Process the link
 			//May be we should create http client for both producer an consumer
-			resp, err := s.linkConsumer.httpClient.Get(link[1])
+			req, err := http.NewRequest("GET", link[1], nil)
+			if err != nil {
+				log.Println("Cannot create new request for: ", link[1])
+				continue
+			}
+			req.Header.Add("UserAgent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/48.0.2564.109 Safari/537.36")
+			resp, err := s.linkConsumer.httpClient.Do(req)
 			if err != nil {
 				log.Println("Error happened when get url: ", link[1], " error: ", err.Error())
 				continue

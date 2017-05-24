@@ -39,7 +39,7 @@ func defaultCleaner(root, result string) string {
 }
 
 func defaultLinkGenerator(page string, document string) ([]string, error) {
-	re, err := regexp.Compile(`href=\"(?P<link>[[:word:]\-_#%\$\^&=:\~/\.\?]+)\"`)
+	re, err := regexp.Compile(`href=[\"|\']{1}(?P<link>[[:word:]\-_#%\$\^&=:\~/\.\?]+)[\"|\']{1}`)
 	if err != nil {
 		log.Println("Invalid regexp for fetch link")
 		return nil, errors.New("Invalid regexp for fetch link")
@@ -59,12 +59,14 @@ func defaultLinkGenerator(page string, document string) ([]string, error) {
 			link = u.Scheme + "://" + u.Host + link
 		}
 		if strings.HasPrefix(link, "http://") || strings.HasPrefix(link, "https://") {
-			if !strings.Contains(link, "js") && !strings.Contains(link, "css") && !strings.Contains(link, "jpg") && !strings.Contains(link, "png") && !strings.Contains(link, "gif") && !strings.Contains(link, "jpeg") && !strings.Contains(link, "xml") && !strings.Contains(link, "less") && !strings.Contains(link, "php") && !strings.Contains(link, "aspx") {
-				/* The root already processed. */
-				if link != u.Scheme+"://"+u.Host && link != u.Scheme+"://"+u.Host+"/" {
-					/* We do not go out of this site */
-					if strings.Contains(link, u.Scheme+"://"+u.Host) {
-						links = append(links, link)
+			if page != link {
+				if !strings.Contains(link, "js") && !strings.Contains(link, "css") && !strings.Contains(link, "jpg") && !strings.Contains(link, "png") && !strings.Contains(link, "gif") && !strings.Contains(link, "jpeg") && !strings.Contains(link, "xml") && !strings.Contains(link, "less") && !strings.Contains(link, "php") && !strings.Contains(link, "aspx") {
+					/* The root already processed. */
+					if link != u.Scheme+"://"+u.Host && link != u.Scheme+"://"+u.Host+"/" {
+						/* We do not go out of this site */
+						if strings.Contains(link, u.Scheme+"://"+u.Host) {
+							links = append(links, link)
+						}
 					}
 				}
 			}
