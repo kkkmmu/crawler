@@ -1,0 +1,23 @@
+* {
+	margin: 0;
+}
+
+html, body {
+	height: 100%;
+}
+
+.wrapper {
+	min-height: 100%;
+	height: auto !important;
+	height: 100%;
+	margin: 0 auto -4em;
+}
+
+.footer {
+	position:fixed;bottom:0;width:100%;_position:absolute;_bottom:auto
+}
+
+#foot{height:20px;line-height:20px;color:#77c;background:#e6e6e6;text-align:center}
+#foot span{color:#666}
+#foot{background:#f5f6f5;border-top:1px solid #ebebeb;text-align:left;height:42px;line-height:42px;margin-top:40px;*margin-top:0}
+#foot .foot_c{float:left;padding:0 0 0 121px}
