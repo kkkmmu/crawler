@@ -2,6 +2,7 @@ package webserver
 
 import (
 	//"encoding/json"
+	"gopkg.in/redis.v5"
 	"html/template"
 	"io"
 	"io/ioutil"
@@ -13,7 +14,11 @@ import (
 )
 
 type Web struct {
+	redisClient *redis.Client
+	ImageSlice  []string
 }
+
+var web Web
 
 func MainPage(w http.ResponseWriter, r *http.Request) {
 	t, err := template.ParseFiles("asset/web/template/index.html", "asset/web/template/footer.html", "asset/web/template/header.html")
@@ -135,8 +140,7 @@ func GetOneImagePage(w http.ResponseWriter, r *http.Request) {
 	cookie := r.Cookies()
 	log.Printf("%v", cookie)
 
-	log.Println(ImageSlice[rand.Intn(len(ImageSlice))])
-	io.WriteString(w, ImageSlice[rand.Intn(len(ImageSlice))])
+	io.WriteString(w, web.ImageSlice[rand.Intn(len(web.ImageSlice))])
 }
 
 func Start() {
@@ -153,16 +157,32 @@ func Start() {
 	http.ListenAndServe(":8080", nil)
 }
 
-var ImageSlice []string
-
 func init() {
+	web.redisClient = redis.NewClient(&redis.Options{
+		Addr:     "localhost:6379",
+		Password: "",
+		DB:       0,
+	})
+
+	web.ImageSlice = make([]string, 0, 100000)
+
 	rand.Seed(time.Now().UnixNano())
 
-	data, err := ioutil.ReadFile("asset/web/txt/pics.txt")
-	if err != nil {
-		log.Println("Error happened when read file: ", err.Error())
+	res, err := web.redisClient.HGetAll("SPIDER:RESULT:CACHE").Result()
+	if err == nil {
+		log.Println("Get Images from DB")
+		for k, _ := range res {
+			web.ImageSlice = append(web.ImageSlice, k)
+		}
+
 		return
 	}
+	log.Println("Get Images from File")
+	data, err := ioutil.ReadFile("asset/web/txt/pics.txt")
+	if err != nil {
+		panic(err)
+	}
+	web.ImageSlice = strings.Split(string(data), "\n")
 
-	ImageSlice = strings.Split(string(data), "\n")
+	log.Println("Totally: ", len(web.ImageSlice), " images!")
 }

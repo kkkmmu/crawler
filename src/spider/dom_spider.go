@@ -117,7 +117,10 @@ type ResultGenerator struct {
 }
 
 func (rg *ResultGenerator) Generate(task string) string {
-	rg.redisClient.HMSet(rg.cache.Name, map[string]string{task: "1"})
+	_, err := rg.redisClient.HMSet(rg.cache.Name, map[string]string{task: "1"}).Result()
+	if err != nil {
+		log.Println("Cannot save: ", task, " with: ", err.Error())
+	}
 
 	return task
 }
@@ -578,6 +581,11 @@ func (s *DomSpider) Spide() <-chan string {
 				continue
 			}
 			//log.Println("[Content]Get task: ", content[1], " from content working queue")
+			res, err := s.resultGenerator.redisClient.HGet(s.resultGenerator.cache.Name, content[1]).Result()
+			if res == "1" {
+				continue
+			}
+
 			s.result <- s.resultGenerator.Generate(s.cleaner(s.domain, content[1]))
 			// Procuess the content
 		}
