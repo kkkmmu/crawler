@@ -1,0 +1,41 @@
+||template "vueheader"||
+
+<script type="text/javascript" src="asset/web/vue/vue.js"></script>
+<div id="app">
+	<span v-bind:title="message">
+		So This is another Message!
+	</span>
+	<p v-if="seen">Now you see me!</p>
+	<ol>
+		<li v-for="todo in todos">
+			{{todo.txt}}
+		</li>
+	</ol>
+	<p>{{ message }}</p>
+	<button v-on:click="reverseMessage">逆转消息</button>
+
+	<p>{{ message }}</p>
+	<input v-model="message">
+</div>
+<script>
+	var app = new Vue({
+		el: '#app',
+		data: {
+			message: 'This is loaded at: ' + new Date(),
+			seen: true,
+			todos: [
+				{text: "HTML"},
+				{text: "CSS"},
+				{text: "Javascript"},
+				{text: "Vue"}
+			]
+
+		},
+		methods: {
+			reverseMessage: function() {
+				this.message = this.message.split(' ').reverse().join(' ')
+			}
+		}
+	})
+</script>
+||template "vuefooter"||

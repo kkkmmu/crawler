@@ -9,6 +9,7 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -137,10 +138,44 @@ func RWaterFallPage(w http.ResponseWriter, r *http.Request) {
 func GetOneImagePage(w http.ResponseWriter, r *http.Request) {
 	r.ParseForm()
 	log.Printf("%v", r.Form)
-	cookie := r.Cookies()
-	log.Printf("%v", cookie)
+	cookies := r.Cookies()
+	log.Printf("%v", cookies)
+
+	ss, err := r.Cookie("Seq")
+	if err != nil {
+		log.Println(err.Error())
+		//This is stupid, should in the login page
+		ss = &http.Cookie{Name: "Seq", Value: "-1", Path: "/getoneimage"}
+	}
+
+	s, err := strconv.Atoi(ss.Value)
+	if err != nil {
+		log.Println(err.Error())
+	}
+
+	cookie := &http.Cookie{
+		Name:  "Seq",
+		Value: strconv.Itoa(s + 1),
+		Path:  "/getoneimage",
+	}
+
+	http.SetCookie(w, cookie)
 
 	io.WriteString(w, web.ImageSlice[rand.Intn(len(web.ImageSlice))])
+}
+
+func VUE(w http.ResponseWriter, r *http.Request) {
+	t, err := template.New("vue.html").Delims("||", "||").ParseFiles("asset/web/template/vue.html", "asset/web/template/vuefooter.html", "asset/web/template/vueheader.html")
+	if err != nil {
+		log.Println(err)
+		io.WriteString(w, err.Error())
+		return
+	}
+
+	err = t.Execute(w, nil)
+	if err != nil {
+		log.Println(err.Error())
+	}
 }
 
 func Start() {
@@ -152,6 +187,7 @@ func Start() {
 	http.HandleFunc("/loadmore", LoadMorePage)
 	http.HandleFunc("/getoneimage", GetOneImagePage)
 	http.HandleFunc("/rwaterfall", RWaterFallPage)
+	http.HandleFunc("/vue", VUE)
 	http.HandleFunc("/", MainPage)
 	http.Handle("/asset/web/", http.FileServer(http.Dir(".")))
 	http.ListenAndServe(":8080", nil)
