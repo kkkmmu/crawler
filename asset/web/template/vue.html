@@ -1,6 +1,10 @@
 ||template "vueheader"||
-
-<script type="text/javascript" src="asset/web/vue/vue.js"></script>
+<style>
+.class1{
+	background: #444;
+	color: #eee;
+}
+</style>
 <div id="app">
 	<span v-bind:title="message">
 		So This is another Message!
@@ -8,7 +12,8 @@
 	<p v-if="seen">Now you see me!</p>
 	<ol>
 		<li v-for="todo in todos">
-			{{todo.txt}}
+			{{todo.text}}
+			--------------
 		</li>
 	</ol>
 	<p>{{ message }}</p>
@@ -16,10 +21,222 @@
 
 	<p>{{ message }}</p>
 	<input v-model="message">
+	<label for="r1">修改颜色</label><input type="checkbox" v-model="class1" id="r1">
+	<br><br>
+	<div v-bind:class="{'class1': class1}">
+		directiva v-bind:class
+	</div>
+	{{5+5}}<br>
+	{{ ok ? 'YES' : 'NO' }}<br>
+	{{ message.split('').reverse().join('') }}
+	<div v-bind:id="'list-' + id">菜鸟教程</div>
+
+	{{ message | capitalize }}
+
+	<div v-if="Math.random() > 0.5">
+		Random Generate
+	</div>
+	<div v-else>
+		Not sorry
+	</div>
+
+	<div v-if="type === 'A'">
+		A
+	</div>
+	<div v-else-if="type === 'B'">
+		B
+	</div>
+	<div v-else-if="type === 'C'">
+		C
+	</div>
+	<div v-else>
+		Not A/B/C
+	</div>
+	<ul>
+		<li v-for="value in object">
+			{{ value }}
+		</li>
+		<li v-for="(value, key) in object">
+			{{ key }} : {{ value }}
+		</li>
+		<li v-for="(value, key, index) in object">
+			{{ index }}. {{ key }} : {{ value }}
+		</li>
+		<li v-for="n in 5">
+			{{ n }}
+		</li>
+	</ul>
+	<button v-on:click="counter += 1">增加 1</button>
+	<p>这个按钮被点击了 {{ counter }} 次。</p>
+	<button v-on:click="greet">Greet</button>
+	<button v-on:click="say('hi')">Say hi</button>
+	<button v-on:click="say('what')">Say what</button>
+	<input v-on:keyup.enter="submit">
+	<!-- 缩写语法 -->
+	<input @keyup.enter="submit">
+	<p>单个复选框：</p>
+	<input type="checkbox" id="checkbox" v-model="checked">
+	<label for="checkbox">{{ checked }}</label>
+
+	<p>多个复选框：</p>
+	<input type="checkbox" id="runoob" value="Runoob" v-model="checkedNames">
+	<label for="runoob">Runoob</label>
+	<input type="checkbox" id="google" value="Google" v-model="checkedNames">
+	<label for="google">Google</label>
+	<input type="checkbox" id="taobao" value="Taobao" v-model="checkedNames">
+	<label for="taobao">taobao</label>
+	<br>
+	<span>选择的值为: {{ checkedNames }}</span>
+	<input type="radio" id="runoob" value="Runoob" v-model="picked">
+	<label for="runoob">Runoob</label>
+	<br>
+	<input type="radio" id="google" value="Google" v-model="picked">
+	<label for="google">Google</label>
+	<br>
+	<span>选中值为: {{ picked }}</span>
+	<select v-model="selected" name="fruit">
+		<option value="">选择一个网站</option>
+		<option value="www.runoob.com">Runoob</option>
+		<option value="www.google.com">Google</option>
+		<option value="www.163.com">netease</option>
+		<option value="www.baidu.com">baidu</option>
+	</select>
+
+	<div id="output">
+		选择的网站是: {{selected}}
+	</div>
+	<runoob></runoob>
+	<localcomponent></localcomponent>
+	<child message="传递参数到子模版"></child>
+
+	<div>
+		<input v-model="parentMsg">
+		<br>
+		<dynamicmessagechild v-bind:message="parentMsg"></dynamicmessagechild>
+	</div>
+	 <ol>
+		 <todoitem v-for="item in websites" v-bind:todo="item"></todoitem>
+	 </ol>
+	 <div id="counter-event-example">
+		 <p>{{ total }}</p>
+		 <button-counter v-on:increment="incrementTotal"></button-counter>
+		 <button-counter v-on:increment="incrementTotal"></button-counter>
+	 </div>
+	 <p>页面载入时，input 元素自动获取焦点：</p>
+	 <input v-focus>
+	 <p>页面载入时，input (局部指令)元素自动获取焦点：</p>
+	 <input v-localfocus>
+	 <div id="app"  v-runoob:hello.a.b="message">
+	 </div>
+
+	 <!-- Vue router -->
+	 <h1>Hello App!</h1>
+	 <p>
+	 <!-- 使用 router-link 组件来导航. -->
+	 <!-- 通过传入 `to` 属性指定链接. -->
+	 <!-- <router-link> 默认会被渲染成一个 `<a>` 标签 -->
+	 <router-link to="/foo">Go to Foo</router-link>
+	 <router-link to="/bar">Go to Bar</router-link>
+	 </p>
+	 <!-- 路由出口 -->
+	 <!-- 路由匹配到的组件将渲染在这里 -->
+	 <router-view></router-view>
 </div>
 <script>
+	// 0. 如果使用模块化机制编程，導入Vue和VueRouter，要调用 Vue.use(VueRouter)
+	 
+	// 1. 定义（路由）组件。
+	// 可以从其他文件 import 进来
+	const Foo = { template: '<div>foo</div>' }
+	const Bar = { template: '<div>bar</div>' }
+	 
+	// 2. 定义路由
+	// 每个路由应该映射一个组件。 其中"component" 可以是
+	// 通过 Vue.extend() 创建的组件构造器，
+	// 或者，只是一个组件配置对象。
+	// 我们晚点再讨论嵌套路由。
+	const routes = [
+		  { path: '/foo', component: Foo },
+		  { path: '/bar', component: Bar }
+		]
+	 
+	// 3. 创建 router 实例，然后传 `routes` 配置
+	// 你还可以传别的配置参数, 不过先这么简单着吧。
+	const router = new VueRouter({
+		  routes // （缩写）相当于 routes: routes
+	})
+	 
+	// 4. 创建和挂载根实例。
+	// 记得要通过 router 配置参数注入路由，
+	// 从而让整个应用都有路由功能
+	 
+	// 现在，应用已经启动了！
+</script>
+
+<script>
+	Vue.component('runoob', {
+		  template: '<h1>自定义组件!</h1>'
+	})
+
+	Vue.component('child', {
+		  // 声明 props
+		props: ['message'],
+		// 同样也可以在 vm 实例中像 "this.message" 这样使用
+		template: '<span><h1>{{ message }}</h1></span>'
+	})
+	Vue.component('dynamicmessagechild', {
+		  // 声明 props
+		  props: ['message'],
+		  // 同样也可以在 vm 实例中像 "this.message" 这样使用
+		template: '<span><h1>{{ message }}</h1></span>'
+	})
+
+	Vue.component('todoitem', {
+		  props: ['todo'],
+		  template: '<li>{{ todo.text }}</li>'
+	})
+
+	Vue.component('button-counter', {
+		template: '<button v-on:click="increment">{{ counter }}</button>',
+		data: function () {
+			return {
+				counter: 0
+			}
+		},
+		methods: {
+			increment: function () {
+				this.counter += 1
+				this.$emit('increment')
+			}
+		},
+	})
+	Vue.directive('focus', {
+		  // 当绑定元素插入到 DOM 中。
+		  inserted: function (el) {
+			      el.focus()
+		  }
+	})
+	Vue.directive('runoob', {
+		bind: function (el, binding, vnode) {
+			var s = JSON.stringify
+			el.innerHTML =
+				'name: '       + s(binding.name) + '<br>' +
+				'value: '      + s(binding.value) + '<br>' +
+				'expression: ' + s(binding.expression) + '<br>' +
+				'argument: '   + s(binding.arg) + '<br>' +
+				'modifiers: '  + s(binding.modifiers) + '<br>' +
+				'vnode keys: ' + Object.keys(vnode).join(', ')
+		}
+	}).$mount('#app')
+</script>
+
+<script>
+	var Child = {
+		  template: '<h1>自定义局部组件!</h1>'
+	}
 	var app = new Vue({
 		el: '#app',
+		router,
 		data: {
 			message: 'This is loaded at: ' + new Date(),
 			seen: true,
@@ -28,12 +245,64 @@
 				{text: "CSS"},
 				{text: "Javascript"},
 				{text: "Vue"}
-			]
-
+			],
+			class1: false,
+			ok: true,
+			id : 1,
+			type: 'B',
+			counter: 0,
+			picked : 'Runoob',
+			checked : false,
+			checkedNames: [],
+			selected: '',
+			total: 0,
+			parentMsg: "传递动态参数到子模版",
+			object: {
+				name: '菜鸟教程',
+				url: 'http://www.runoob.com',
+				slogan: '学的不仅是技术，更是梦想！'
+			},
+			websites: [
+				{ text: 'Runoob' },
+				{ text: 'Google' },
+				{ text: 'Taobao' }
+			],
 		},
 		methods: {
 			reverseMessage: function() {
 				this.message = this.message.split(' ').reverse().join(' ')
+			},
+			greet: function (event) {
+				// `this` 在方法里指当前 Vue 实例
+				alert('Hello ' + this.name + '!')
+				// `event` 是原生 DOM 事件
+				if (event) {
+					alert(event.target.tagName)
+				}
+			},
+			say: function (message) {
+				alert(message)
+			},
+			incrementTotal: function () {
+				this.total += 1
+			}
+		},
+		filters: {
+			capitalize: function (value) {
+				if (!value) return ''
+				value = value.toString()
+				return value.charAt(0).toUpperCase() + value.slice(1)
+			}
+		},
+		components: {
+			localcomponent: Child
+		},
+		directives: {
+			localfocus: {
+				inserted: function (el) {
+					// 聚焦元素
+					el.focus()
+				}
 			}
 		}
 	})
