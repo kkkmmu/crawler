@@ -178,6 +178,45 @@ func VUE(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func VUEForm(w http.ResponseWriter, r *http.Request) {
+	t, err := template.New("vueform.html").Delims("||", "||").ParseFiles("asset/web/template/vueform.html", "asset/web/template/vuefooter.html", "asset/web/template/vueheader.html")
+	if err != nil {
+		log.Println(err)
+		io.WriteString(w, err.Error())
+		return
+	}
+
+	err = t.Execute(w, nil)
+	if err != nil {
+		log.Println(err.Error())
+	}
+}
+
+func Script(w http.ResponseWriter, r *http.Request) {
+	t, err := template.New("script.html").Delims("||", "||").ParseFiles("asset/web/template/script.html", "asset/web/template/vuefooter.html", "asset/web/template/vueheader.html")
+	if err != nil {
+		log.Println(err)
+		io.WriteString(w, err.Error())
+		return
+	}
+
+	err = t.Execute(w, nil)
+	if err != nil {
+		log.Println(err.Error())
+	}
+}
+
+func RunScript(w http.ResponseWriter, r *http.Request) {
+	r.ParseForm()
+
+	log.Println(r.Method)
+	for k, v := range r.Form {
+		log.Println(k, v)
+	}
+
+	io.WriteString(w, "Success")
+}
+
 func Start() {
 	http.HandleFunc("/index", MainPage)
 	http.HandleFunc("/slider", SliderPage)
@@ -188,6 +227,9 @@ func Start() {
 	http.HandleFunc("/getoneimage", GetOneImagePage)
 	http.HandleFunc("/rwaterfall", RWaterFallPage)
 	http.HandleFunc("/vue", VUE)
+	http.HandleFunc("/script", Script)
+	http.HandleFunc("/runscript", RunScript)
+	http.HandleFunc("/vueform", VUEForm)
 	http.HandleFunc("/", MainPage)
 	http.Handle("/asset/web/", http.FileServer(http.Dir(".")))
 	http.ListenAndServe(":8080", nil)

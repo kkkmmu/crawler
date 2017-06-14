@@ -1,0 +1,50 @@
+||template "vueheader"||
+<div id="form-message">
+	<button class="btn btn-default" @click="addNewMessage">New Message</button>
+	<template v-for="message in messages">
+		<input type="text" v-model="message.DestinationNumber" class="form-control">
+		<textarea rows="3" v-model="message.TextDecoded" class="form-control"></textarea>
+	</template>
+	<button class="btn btn-success" @click.prevent="submitForm">Submit</button>
+	<pre>{{messages | json}}</pre>
+</div>
+<script>
+	var newSingleMessage = new Vue({
+		el: '#form-message',
+		data: {
+			messages: [
+				{
+					DestinationNumber: '',
+					TextDecoded: ''
+				}
+			],
+			submitted:false
+		},
+		methods: {
+			addNewMessage: function(){
+				this.messages.push({
+					DestinationNumber: '',
+					TextDecoded: ''
+				});
+			},
+			submitForm: function(e) {
+				$.ajax({
+					type:"post",
+					url:"runscript",
+					async:false,
+					data: {
+						Name : "message",
+						Content: this.messages,
+					},
+					success:function(data) {
+						alert(data)
+					}
+				});
+
+				this.messages = [{ DestinationNumber: '', TextDecoded: '' }];
+				this.submitted = true;
+			}
+		}
+	});
+</script>
+||template "vuefooter"||
